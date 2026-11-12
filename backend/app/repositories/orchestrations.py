@@ -60,18 +60,20 @@ def insert_attempt(
     *,
     orchestration_id: int,
     job_id: int,
+    domain: str,
     attempt_no: int,
     status: str,
     detail: dict[str, Any],
 ) -> int:
     cur = conn.execute(
         """
-        INSERT INTO job_attempts(orchestration_id, job_id, attempt_no, status, detail, created_at)
-        VALUES (?,?,?,?,?,?)
+        INSERT INTO job_attempts(orchestration_id, job_id, domain, attempt_no, status, detail, created_at)
+        VALUES (?,?,?,?,?,?,?)
         """,
         (
             orchestration_id,
             job_id,
+            domain,
             attempt_no,
             status,
             json.dumps(detail, ensure_ascii=False),
@@ -87,7 +89,7 @@ def list_attempts(
     if orchestration_id is None:
         rows = conn.execute(
             """
-            SELECT a.id, a.orchestration_id, a.job_id, j.name AS job_name,
+            SELECT a.id, a.orchestration_id, a.job_id, a.domain, j.name AS job_name,
                    a.attempt_no, a.status, a.detail, a.created_at
             FROM job_attempts a JOIN jobs j ON j.id=a.job_id
             ORDER BY a.id DESC
@@ -96,7 +98,7 @@ def list_attempts(
     else:
         rows = conn.execute(
             """
-            SELECT a.id, a.orchestration_id, a.job_id, j.name AS job_name,
+            SELECT a.id, a.orchestration_id, a.job_id, a.domain, j.name AS job_name,
                    a.attempt_no, a.status, a.detail, a.created_at
             FROM job_attempts a JOIN jobs j ON j.id=a.job_id
             WHERE a.orchestration_id=?

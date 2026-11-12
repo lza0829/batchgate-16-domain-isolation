@@ -13,9 +13,10 @@ def _now() -> str:
 def list_watermarks(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
-        SELECT w.job_id, j.name AS job_name, w.watermark_ts, w.artifact_rows, w.updated_at
+        SELECT w.job_id, j.name AS job_name, j.domain AS domain,
+               w.watermark_ts, w.artifact_rows, w.updated_at
         FROM watermarks w JOIN jobs j ON j.id=w.job_id
-        ORDER BY w.job_id
+        ORDER BY j.domain, w.job_id
         """
     ).fetchall()
     return [dict(r) for r in rows]

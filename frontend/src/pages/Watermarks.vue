@@ -10,13 +10,14 @@ onMounted(async () => {
 <template>
   <div class="page">
     <h1>产出水位</h1>
-    <p class="muted">各作业最近一次成功写出的水位时间与行数。</p>
+    <p class="muted">各域作业最近一次成功写出的水位时间与行数。</p>
     <p v-if="err" class="tag danger">{{ err }}</p>
     <div class="panel">
       <table>
-        <thead><tr><th>作业</th><th>watermark</th><th>行数</th><th>更新</th></tr></thead>
+        <thead><tr><th>域</th><th>作业</th><th>watermark</th><th>行数</th><th>更新</th></tr></thead>
         <tbody>
           <tr v-for="w in rows" :key="w.job_id">
+            <td class="mono">{{ w.domain }}</td>
             <td class="mono">{{ w.job_name }}</td>
             <td class="mono">{{ w.watermark_ts || '—' }}</td>
             <td>{{ w.artifact_rows }}</td>

@@ -1,6 +1,37 @@
 from app.db import connect
 
 
+def _add_column_if_missing(conn, table: str, column: str, ddl: str) -> bool:
+    cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column in cols:
+        return False
+    conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+    return True
+
+
+def _migrate(conn) -> None:
+    """Add domain columns to databases created before domain isolation."""
+    added_job_domain = _add_column_if_missing(
+        conn, "jobs", "domain", "domain TEXT NOT NULL DEFAULT 'sales'"
+    )
+    added_attempt_domain = _add_column_if_missing(
+        conn, "job_attempts", "domain", "domain TEXT NOT NULL DEFAULT ''"
+    )
+    if added_attempt_domain:
+        # Backfill historical attempts from the job they belong to.
+        conn.execute(
+            """
+            UPDATE job_attempts
+            SET domain = COALESCE((SELECT j.domain FROM jobs j WHERE j.id = job_attempts.job_id), '')
+            WHERE domain = ''
+            """
+        )
+    if added_job_domain:
+        # Legacy installs keep their existing (pre-domain) graph intact by
+        # placing it into a single domain, so no edge silently becomes cross-domain.
+        conn.execute("UPDATE jobs SET domain='sales' WHERE domain='' OR domain IS NULL")
+
+
 def init_db():
     conn = connect()
     conn.executescript(
@@ -12,6 +43,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS jobs(
             id INTEGER PRIMARY KEY,
             name TEXT NOT NULL UNIQUE,
+            domain TEXT NOT NULL DEFAULT 'sales',
             fixture_path TEXT NOT NULL,
             depends_on_json TEXT NOT NULL,
             max_attempts INTEGER NOT NULL DEFAULT 1,
@@ -29,6 +61,7 @@ def init_db():
             id INTEGER PRIMARY KEY,
             orchestration_id INTEGER NOT NULL,
             job_id INTEGER NOT NULL,
+            domain TEXT NOT NULL DEFAULT '',
             attempt_no INTEGER NOT NULL,
             status TEXT NOT NULL,
             detail TEXT NOT NULL,
@@ -42,37 +75,50 @@ def init_db():
         );
         """
     )
+    _migrate(conn)
     if conn.execute("SELECT COUNT(*) c FROM jobs").fetchone()["c"] == 0:
         jobs = [
             (
                 "ingest_orders",
+                "sales",
                 "ingest_orders.json",
                 "[]",
                 1,
                 1,
-                "无依赖：写出订单水位",
+                "销售域入口：无依赖，写出订单水位",
             ),
             (
-                "dim_customer",
+                "fact_order_daily",
+                "sales",
+                "fact_order_daily.json",
+                '["ingest_orders"]',
+                1,
+                1,
+                "销售域内依赖：依赖同域 ingest_orders 成功后执行",
+            ),
+            (
+                "customer_profile",
+                "customer",
                 "dim_customer.json",
                 "[]",
                 1,
                 1,
-                "无依赖：写出客户维表水位",
+                "客户域：无依赖，写出客户维表水位",
             ),
             (
-                "fact_order_daily",
-                "fact_order_daily.json",
-                '["ingest_orders","dim_customer"]',
+                "marketing_attribution",
+                "marketing",
+                "marketing_attribution.json",
+                '["ingest_orders"]',
                 1,
                 1,
-                "依赖两路上游成功后才执行（底座仅查上游成功）",
+                "演示用跨域边：marketing 域依赖 sales 域 ingest_orders，编排时会被域隔离拦下",
             ),
         ]
         conn.executemany(
             """
-            INSERT INTO jobs(name, fixture_path, depends_on_json, max_attempts, enabled, note)
-            VALUES (?,?,?,?,?,?)
+            INSERT INTO jobs(name, domain, fixture_path, depends_on_json, max_attempts, enabled, note)
+            VALUES (?,?,?,?,?,?,?)
             """,
             jobs,
         )
